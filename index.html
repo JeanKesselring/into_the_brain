@@ -28,9 +28,9 @@
       inset: 0 0 auto 0;
       height: var(--nav-h);
       z-index: 500;
-      background: rgba(7, 7, 14, 0.78);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: rgba(7, 7, 14, 0.88);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       display: flex;
       align-items: center;
@@ -107,48 +107,6 @@
       user-select: none;
       -webkit-user-drag: none;
     }
-
-    /* ── SCALE BAR ────────────────────────────────────────── */
-    #scale-bar {
-      position: fixed;
-      bottom: 44px;
-      right: 56px;
-      z-index: 200;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 9px;
-      pointer-events: none;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
-
-    #scale-text {
-      font-size: 10px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.42);
-      transition: opacity 0.5s ease;
-    }
-
-    #scale-line {
-      width: 80px; /* overridden by JS */
-      height: 1px;
-      background: rgba(255, 255, 255, 0.32);
-      position: relative;
-    }
-
-    #scale-line::before,
-    #scale-line::after {
-      content: '';
-      position: absolute;
-      width: 1px;
-      height: 9px;
-      background: rgba(255, 255, 255, 0.32);
-      top: -4px;
-    }
-
-    #scale-line::before { left: 0; }
-    #scale-line::after  { right: 0; }
 
     /* ── PROGRESS DOTS ────────────────────────────────────── */
     #progress {
@@ -229,9 +187,9 @@
     /* ── TEXT CARDS ───────────────────────────────────────── */
     .text-card {
       max-width: 360px;
-      background: rgba(7, 7, 14, 0.62);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
+      background: rgba(7, 7, 14, 0.80);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       border-left: 1px solid rgba(255, 255, 255, 0.10);
       padding: 28px 32px;
       opacity: 0;
@@ -275,12 +233,6 @@
   <!-- image layers injected by JS -->
 </div>
 
-<!-- ── SCALE BAR ──────────────────────────────────────────── -->
-<div id="scale-bar">
-  <span id="scale-text">150&nbsp;mm</span>
-  <div id="scale-line"></div>
-</div>
-
 <!-- ── PROGRESS DOTS ──────────────────────────────────────── -->
 <div id="progress"></div>
 
@@ -302,8 +254,6 @@
   const FADE_START      = 0.55; // progress within chapter when cross-fade begins
   const OVERLAY_START   = 0.22; // progress when overlay image (4.5) starts fading in
   const OVERLAY_END     = 0.50; // progress when overlay image is fully opaque
-  const SCALE_BASE_MM   = 150;  // real-world mm at chapter 0, image scale = 1.0
-  const BASE_LINE_PX    = 60;   // scale bar line width at zoom factor 1.0
 
   /* ── CHAPTER DATA ───────────────────────────────────────── */
   // zoomFactor: how many times more zoomed-in the NEXT image is relative to this one.
@@ -378,25 +328,16 @@
     }
   ];
 
-  // Precompute the real-world scale (mm) at the START of each chapter.
-  // scaleAtStart[i+1] = scaleAtStart[i] / chapters[i].zoomFactor
-  const scaleAtStart = chapters.reduce((acc, ch, i) => {
-    acc.push(i === 0 ? SCALE_BASE_MM : acc[i - 1] / chapters[i - 1].zoomFactor);
-    return acc;
-  }, []);
-
   /* ── ELEMENT REFS ───────────────────────────────────────── */
-  const stage       = document.getElementById('stage');
-  const scroller    = document.getElementById('scroller');
-  const progressEl  = document.getElementById('progress');
-  const scaleText   = document.getElementById('scale-text');
-  const scaleLineEl = document.getElementById('scale-line');
-  const scrollHint  = document.getElementById('scroll-hint');
+  const stage      = document.getElementById('stage');
+  const scroller   = document.getElementById('scroller');
+  const progressEl = document.getElementById('progress');
+  const scrollHint = document.getElementById('scroll-hint');
 
   /* ── BUILD DOM ──────────────────────────────────────────── */
 
-  // Image layers
-  const layerEls = chapters.map((ch) => {
+  // Image layers — cache ovImg ref so we never querySelector in the render loop
+  const layerData = chapters.map((ch, i) => {
     const div = document.createElement('div');
     div.className = 'img-layer';
 
@@ -404,22 +345,26 @@
     img.className = 'main-img';
     img.src = ch.src;
     img.alt = ch.heading || '';
+    img.decoding = 'async';
+    if (i > 1) img.loading = 'lazy'; // first two load eagerly
     div.appendChild(img);
 
+    let ovImg = null;
     if (ch.overlay) {
-      const ov = document.createElement('img');
-      ov.className = 'overlay-img';
-      ov.src = ch.overlay;
-      ov.alt = '';
-      div.appendChild(ov);
+      ovImg = document.createElement('img');
+      ovImg.className = 'overlay-img';
+      ovImg.src = ch.overlay;
+      ovImg.alt = '';
+      ovImg.decoding = 'async';
+      div.appendChild(ovImg);
     }
 
     stage.appendChild(div);
-    return div;
+    return { layer: div, ovImg };
   });
 
   // Progress dots
-  const dotEls = chapters.map(() => {
+  const dotEls = chapters.map((_) => {
     const d = document.createElement('div');
     d.className = 'pdot';
     progressEl.appendChild(d);
@@ -450,17 +395,14 @@
     return card;
   });
 
-  /* ── SIZING ─────────────────────────────────────────────── */
-  function chapterHeight() {
-    return window.innerHeight * VH_PER_CHAPTER;
-  }
+  /* ── SIZING — cached so render() never touches window.innerHeight ── */
+  let chH = window.innerHeight * VH_PER_CHAPTER;
+
+  const blockEls = document.querySelectorAll('.ch-block');
 
   function applyHeights() {
-    const chH = chapterHeight();
-    document.querySelectorAll('.ch-block').forEach(b => {
-      b.style.height = `${chH}px`;
-    });
-    // Extra half-screen at the bottom so last chapter can fully complete
+    chH = window.innerHeight * VH_PER_CHAPTER;
+    blockEls.forEach(b => { b.style.height = `${chH}px`; });
     scroller.style.height = `${chH * chapters.length + window.innerHeight * 0.5}px`;
   }
   applyHeights();
@@ -470,115 +412,71 @@
   function ease(t) { t = clamp(t, 0, 1); return t < 0.5 ? 2*t*t : -1 + (4-2*t)*t; }
   function linearStep(t, a, b) { return clamp((t - a) / (b - a), 0, 1); }
 
+  /* ── RENDER STATE ───────────────────────────────────────── */
+  // Track which layer indices are currently visible so we only write to the
+  // 2 active layers per frame and can clean up exactly when chapter changes.
+  let visibleSet = new Set();
+  let prevCur    = -1;
+
   /* ── MAIN RENDER ────────────────────────────────────────── */
   function render() {
-    const sy  = window.scrollY;
-    const chH = chapterHeight();
+    const sy = window.scrollY;
 
-    // Which chapter and how far through it (0–1)
     const rawIdx = sy / chH;
     const cur    = clamp(Math.floor(rawIdx), 0, chapters.length - 1);
-    const prog   = rawIdx - Math.floor(rawIdx); // 0..1
+    const prog   = rawIdx - Math.floor(rawIdx);
 
-    const isLast = cur === chapters.length - 1;
-
-    // Cross-fade progress (0 = no fade yet, 1 = fully transitioned)
-    const fadeRaw = isLast ? 0 : linearStep(prog, FADE_START, 1.0);
-    const fadeT   = ease(fadeRaw);
-
-    /* ── Image layers ── */
-    // Z: how many times more zoomed-in the next image is relative to the current one.
-    const Z = chapters[cur].zoomFactor;
-
-    // curScale: how much the current image has been scaled this chapter.
-    // Goes from 1.0 at chapter start to Z at chapter end.
+    const isLast   = cur === chapters.length - 1;
+    const fadeRaw  = isLast ? 0 : linearStep(prog, FADE_START, 1.0);
+    const fadeT    = ease(fadeRaw);
+    const Z        = chapters[cur].zoomFactor;
     const curScale = 1 + prog * (Z - 1);
 
-    chapters.forEach((ch, i) => {
-      const layer  = layerEls[i];
-      const ovImg  = layer.querySelector('.overlay-img');
+    /* ── Image layers: only touch cur and cur+1 ── */
+    const newVisible = new Set([cur]);
+    if (!isLast) newVisible.add(cur + 1);
 
-      let layerOpacity, layerScale;
-
-      if (i === cur) {
-        // Active: zooms from 1.0 to Z. Stays at full opacity — it acts as the
-        // background while the next image fades in on top, so there is never a
-        // dark gap around the incoming (smaller) image.
-        layerOpacity = 1;
-        layerScale   = curScale;
-
-      } else if (i === cur + 1 && !isLast) {
-        // Next: fades in ON TOP of the current image. Starts at curScale/Z so its
-        // field of view matches the current image exactly throughout the crossfade.
-        // At the end curScale = Z, so nextScale = Z/Z = 1.0 — it fills the viewport
-        // and the current layer (now fully behind) snaps to opacity 0 invisibly.
-        layerOpacity = fadeT;
-        layerScale   = curScale / Z;
-
-      } else if (i < cur) {
-        // Past chapters: hidden. They were already fully covered when we left them.
-        layerOpacity = 0;
-        layerScale   = Z;
-
-      } else {
-        // Future chapters: hidden at natural scale.
-        layerOpacity = 0;
-        layerScale   = 1.0;
+    // Hide any layer that was visible last frame but isn't anymore
+    for (const idx of visibleSet) {
+      if (!newVisible.has(idx)) {
+        layerData[idx].layer.style.opacity   = 0;
+        layerData[idx].layer.style.transform = 'translate3d(0,0,0) scale(1)';
       }
-
-      // Apply transform to the LAYER so both main-img and overlay-img scale together
-      layer.style.opacity   = layerOpacity;
-      layer.style.transform = `scale(${layerScale.toFixed(4)})`;
-
-      // Overlay (image 4.5): fades in during its chapter, both images share the layer scale
-      if (ovImg) {
-        let ovOpacity = 0;
-        if (i === cur) {
-          ovOpacity = ease(linearStep(prog, OVERLAY_START, OVERLAY_END));
-        } else if (i <= cur) {
-          ovOpacity = 1;
-        }
-        ovImg.style.opacity = ovOpacity;
-      }
-    });
-
-    /* ── Scale bar ── */
-    // Real-world scale shown on screen = scaleAtStart[cur] / curScale.
-    // This is perfectly continuous across chapter boundaries:
-    //   end of ch i:   scaleAtStart[i] / Z[i]
-    //   start of ch i+1: scaleAtStart[i+1] / 1.0 = scaleAtStart[i] / Z[i]  ✓
-    const scaleMM = scaleAtStart[cur] / curScale;
-
-    let label;
-    if (scaleMM >= 1) {
-      label = `${scaleMM >= 10 ? Math.round(scaleMM) : scaleMM.toFixed(1)}\u00a0mm`;
-    } else if (scaleMM >= 0.001) {
-      const um = scaleMM * 1000;
-      label = `${um >= 100 ? Math.round(um) : um.toFixed(1)}\u00a0μm`;
-    } else {
-      label = `${Math.round(scaleMM * 1e6)}\u00a0nm`;
     }
-    scaleText.textContent = label;
+    visibleSet = newVisible;
 
-    // Scale bar LINE grows with curScale (same physical distance occupies more pixels
-    // as we zoom in). During crossfade it transitions back to BASE_LINE_PX as the
-    // next image (at scale 1.0) takes over. Cap at 4× to keep it readable.
-    const rawLine  = BASE_LINE_PX * clamp(curScale, 1, 4);
-    const lineWidth = rawLine + (BASE_LINE_PX - rawLine) * fadeT;
-    scaleLineEl.style.width = `${lineWidth.toFixed(1)}px`;
+    // Current layer: zooms from 1.0 → Z, stays fully opaque (acts as background
+    // so there's never a dark gap around the incoming smaller image)
+    const cur_d = layerData[cur];
+    cur_d.layer.style.opacity   = 1;
+    cur_d.layer.style.transform = `translate3d(0,0,0) scale(${curScale.toFixed(4)})`;
 
-    /* ── Progress dots ── */
-    dotEls.forEach((d, i) => d.classList.toggle('on', i === cur));
+    if (cur_d.ovImg) {
+      cur_d.ovImg.style.opacity = ease(linearStep(prog, OVERLAY_START, OVERLAY_END));
+    }
+
+    // Next layer: fades in at scale curScale/Z so its field of view matches exactly
+    if (!isLast) {
+      const next_d    = layerData[cur + 1];
+      const nextScale = curScale / Z;
+      next_d.layer.style.opacity   = fadeT;
+      next_d.layer.style.transform = `translate3d(0,0,0) scale(${nextScale.toFixed(4)})`;
+    }
+
+    /* ── Progress dots: classList only on chapter change ── */
+    if (cur !== prevCur) {
+      if (prevCur >= 0) dotEls[prevCur].classList.remove('on');
+      dotEls[cur].classList.add('on');
+      prevCur = cur;
+    }
 
     /* ── Text cards ── */
-    // Show card when inside the chapter and before transition zone
     cardEls.forEach((card, i) => {
-      const active = (i === cur) && (prog < FADE_START + 0.05);
-      card.classList.toggle('show', active);
+      card.classList.toggle('show', i === cur && prog < FADE_START + 0.05);
     });
 
     /* ── Scroll hint ── */
-    scrollHint.style.opacity = sy > window.innerHeight * 0.35 ? '0' : '1';
+    scrollHint.style.opacity = sy > chH * 0.35 ? '0' : '1';
   }
 
   /* ── EVENT LISTENERS ────────────────────────────────────── */
