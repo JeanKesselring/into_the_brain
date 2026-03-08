@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Into the Brain — Jean</title>
+  <style>
+    :root {
+      --nav-h: 64px;
+      --fg: #e8dfd3;
+      --bg: #07070e;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { overflow-x: hidden; }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ──────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      inset: 0 0 auto 0;
+      height: var(--nav-h);
+      z-index: 500;
+      background: rgba(7, 7, 14, 0.78);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 52px;
+    }
+
+    .nav-l {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 300;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .nav-r {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 300;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* ── FIXED STAGE ──────────────────────────────────────── */
+    #stage {
+      position: fixed;
+      top: var(--nav-h);
+      left: 0; right: 0; bottom: 0;
+      z-index: 0;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    /* Edge vignette */
+    #vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(
+        ellipse 85% 85% at 50% 50%,
+        transparent 38%,
+        rgba(7, 7, 14, 0.45) 72%,
+        rgba(7, 7, 14, 0.88) 100%
+      );
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* ── IMAGE LAYERS ─────────────────────────────────────── */
+    .img-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      opacity: 0;
+      transform-origin: center center;
+      will-change: opacity, transform;
+    }
+
+    .img-layer .main-img {
+      position: absolute;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .img-layer .overlay-img {
+      position: absolute;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      will-change: opacity;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    /* ── SCALE BAR ────────────────────────────────────────── */
+    #scale-bar {
+      position: fixed;
+      bottom: 44px;
+      right: 56px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 9px;
+      pointer-events: none;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    #scale-text {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.42);
+      transition: opacity 0.5s ease;
+    }
+
+    #scale-line {
+      width: 80px; /* overridden by JS */
+      height: 1px;
+      background: rgba(255, 255, 255, 0.32);
+      position: relative;
+    }
+
+    #scale-line::before,
+    #scale-line::after {
+      content: '';
+      position: absolute;
+      width: 1px;
+      height: 9px;
+      background: rgba(255, 255, 255, 0.32);
+      top: -4px;
+    }
+
+    #scale-line::before { left: 0; }
+    #scale-line::after  { right: 0; }
+
+    /* ── PROGRESS DOTS ────────────────────────────────────── */
+    #progress {
+      position: fixed;
+      right: 22px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 9px;
+      pointer-events: none;
+    }
+
+    .pdot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.16);
+      transition: background 0.4s ease, transform 0.4s ease;
+    }
+
+    .pdot.on {
+      background: rgba(255, 255, 255, 0.75);
+      transform: scale(1.5);
+    }
+
+    /* ── SCROLL HINT ──────────────────────────────────────── */
+    #scroll-hint {
+      position: fixed;
+      bottom: 44px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      pointer-events: none;
+      transition: opacity 0.7s ease;
+    }
+
+    #scroll-hint span {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    #scroll-arrow {
+      width: 1px;
+      height: 38px;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.32), transparent);
+      animation: arrowPulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes arrowPulse {
+      0%, 100% { transform: scaleY(1);   opacity: 1; }
+      50%       { transform: scaleY(0.55); opacity: 0.35; }
+    }
+
+    /* ── SCROLL DRIVER ────────────────────────────────────── */
+    #scroller {
+      position: relative;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* ── CHAPTER BLOCKS ───────────────────────────────────── */
+    .ch-block {
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 0 60px;
+    }
+
+    /* ── TEXT CARDS ───────────────────────────────────────── */
+    .text-card {
+      max-width: 360px;
+      background: rgba(7, 7, 14, 0.62);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-left: 1px solid rgba(255, 255, 255, 0.10);
+      padding: 28px 32px;
+      opacity: 0;
+      transform: translateX(-18px);
+      transition: opacity 0.9s ease, transform 0.9s ease;
+      pointer-events: auto;
+    }
+
+    .text-card.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .text-card h2 {
+      font-size: 1.22rem;
+      font-weight: 400;
+      letter-spacing: 0.035em;
+      color: rgba(255, 255, 255, 0.88);
+      margin-bottom: 13px;
+      line-height: 1.3;
+    }
+
+    .text-card p {
+      font-size: 0.82rem;
+      line-height: 1.88;
+      color: rgba(232, 223, 211, 0.56);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAVBAR ─────────────────────────────────────────────── -->
+<nav>
+  <span class="nav-l">Jean</span>
+  <span class="nav-r">Into the Brain</span>
+</nav>
+
+<!-- ── FIXED IMAGE STAGE ──────────────────────────────────── -->
+<div id="stage">
+  <div id="vignette"></div>
+  <!-- image layers injected by JS -->
+</div>
+
+<!-- ── SCALE BAR ──────────────────────────────────────────── -->
+<div id="scale-bar">
+  <span id="scale-text">150&nbsp;mm</span>
+  <div id="scale-line"></div>
+</div>
+
+<!-- ── PROGRESS DOTS ──────────────────────────────────────── -->
+<div id="progress"></div>
+
+<!-- ── SCROLL HINT ────────────────────────────────────────── -->
+<div id="scroll-hint">
+  <span>Scroll to explore</span>
+  <div id="scroll-arrow"></div>
+</div>
+
+<!-- ── SCROLL DRIVER (creates page height + text panels) ──── -->
+<div id="scroller"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ── CONFIG ─────────────────────────────────────────────── */
+  const VH_PER_CHAPTER  = 3;    // scroll height per chapter (× viewport height)
+  const FADE_START      = 0.55; // progress within chapter when cross-fade begins
+  const OVERLAY_START   = 0.22; // progress when overlay image (4.5) starts fading in
+  const OVERLAY_END     = 0.50; // progress when overlay image is fully opaque
+  const SCALE_BASE_MM   = 150;  // real-world mm at chapter 0, image scale = 1.0
+  const BASE_LINE_PX    = 60;   // scale bar line width at zoom factor 1.0
+
+  /* ── CHAPTER DATA ───────────────────────────────────────── */
+  // zoomFactor: how many times more zoomed-in the NEXT image is relative to this one.
+  // 1→2: 2×,  2→3 onward: 4×,  4→4.5: 1:1 (overlay, same chapter),  last chapter: unused.
+  const chapters = [
+    {
+      src: 'Images/1.jpg', overlay: null, zoomFactor: 2,
+      heading: 'Into the Brain',
+      body: 'The brain is the central part of our nervous system. It regulates many bodily functions, processes the inputs from our sensory organs and contains the human mind.'
+    },
+    {
+      src: 'Images/2.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Anatomy of the Brain',
+      body: 'It is arguably the most complex organ. It can be divided into many regions. The largest structures visible from the outside are the cerebral cortex, the cerebellum and the brain stem.'
+    },
+    {
+      src: 'Images/3.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Brain Regions',
+      body: 'These regions serve different functions. The cerebral cortex takes part in sensory perception, the generation of motor commands, conscious thought and language — the region we are about to explore.'
+    },
+    {
+      // Image 4 + 4.5 are 1:1 scale (same field of view), so 4.5 is an overlay.
+      // The zoom to image 5 is 4× from image 4's perspective.
+      src: 'Images/4.jpg', overlay: 'Images/4.5.jpg', zoomFactor: 4,
+      heading: 'The Cerebral Cortex',
+      body: 'The cerebral cortex forms the outermost layer of the brain. A cross-section reveals its folded architecture — a dense sheet of neural tissue just a few millimetres thick, yet hiding extraordinary complexity within.'
+    },
+    {
+      src: 'Images/5.jpg', overlay: null, zoomFactor: 4,
+      heading: 'The Neocortex',
+      body: 'The neocortex makes up 90% of the cerebral cortex. It can be divided into the frontal lobe, the temporal lobe, the parietal lobe, the motor strip, the sensory strip, and the occipital lobe.'
+    },
+    {
+      src: 'Images/6.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Lobes and Function',
+      body: 'Each lobe processes specialised information. The occipital lobe handles vision; the temporal lobe, hearing and memory; the parietal lobe, spatial awareness; and the frontal lobe governs planning and decision-making.'
+    },
+    {
+      src: 'Images/7.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Gyrus and Sulcus',
+      body: 'The cortical surface is folded into ridges called gyri and grooves called sulci. This folding dramatically increases the surface area available for neural circuitry, packing far more computational power into a compact space.'
+    },
+    {
+      src: 'Images/8.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Cortical Layers',
+      body: 'The neocortex is organised into six distinct layers, each characterised by unique cell types and long-range connections. This laminar architecture is a hallmark of mammalian cortex and underlies its remarkable functional versatility.'
+    },
+    {
+      src: 'Images/9.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Cortical Columns',
+      body: 'Perpendicular to the layers, neurons are arranged in vertical columns — the fundamental functional units of the cortex. Each column selectively processes a specific feature of the sensory world.'
+    },
+    {
+      src: 'Images/10.jpg', overlay: null, zoomFactor: 4,
+      heading: 'Neurons',
+      body: 'Individual neurons are the computational units of the brain. A single pyramidal neuron may receive inputs from thousands of synapses, continuously integrating signals to determine whether and how strongly to fire.'
+    },
+    {
+      src: 'Images/11.jpg', overlay: null, zoomFactor: 4,
+      heading: 'The Dendritic Tree',
+      body: 'Dendrites branch elaborately from the neuron\'s cell body, forming a tree-like structure that collects and weighs incoming signals. The geometry of this tree directly shapes how information is processed and transformed.'
+    },
+    {
+      src: 'Images/12.jpg', overlay: null, zoomFactor: 2,
+      heading: 'Synaptic Connections',
+      body: 'At the synapse, one neuron communicates with another through the release of neurotransmitters across a nanometre-wide cleft. These fleeting chemical signals are the basis of every thought, emotion and memory.'
+    },
+    {
+      src: 'Images/13.jpg', overlay: null, zoomFactor: 1, // last chapter, no next image
+      heading: 'The Molecular Scale',
+      body: 'At the finest scale we encounter the molecular machinery of mind — ion channels, receptor proteins and signalling cascades. From atoms to awareness, the brain bridges scales spanning twelve orders of magnitude.'
+    }
+  ];
+
+  // Precompute the real-world scale (mm) at the START of each chapter.
+  // scaleAtStart[i+1] = scaleAtStart[i] / chapters[i].zoomFactor
+  const scaleAtStart = chapters.reduce((acc, ch, i) => {
+    acc.push(i === 0 ? SCALE_BASE_MM : acc[i - 1] / chapters[i - 1].zoomFactor);
+    return acc;
+  }, []);
+
+  /* ── ELEMENT REFS ───────────────────────────────────────── */
+  const stage       = document.getElementById('stage');
+  const scroller    = document.getElementById('scroller');
+  const progressEl  = document.getElementById('progress');
+  const scaleText   = document.getElementById('scale-text');
+  const scaleLineEl = document.getElementById('scale-line');
+  const scrollHint  = document.getElementById('scroll-hint');
+
+  /* ── BUILD DOM ──────────────────────────────────────────── */
+
+  // Image layers
+  const layerEls = chapters.map((ch) => {
+    const div = document.createElement('div');
+    div.className = 'img-layer';
+
+    const img = document.createElement('img');
+    img.className = 'main-img';
+    img.src = ch.src;
+    img.alt = ch.heading || '';
+    div.appendChild(img);
+
+    if (ch.overlay) {
+      const ov = document.createElement('img');
+      ov.className = 'overlay-img';
+      ov.src = ch.overlay;
+      ov.alt = '';
+      div.appendChild(ov);
+    }
+
+    stage.appendChild(div);
+    return div;
+  });
+
+  // Progress dots
+  const dotEls = chapters.map(() => {
+    const d = document.createElement('div');
+    d.className = 'pdot';
+    progressEl.appendChild(d);
+    return d;
+  });
+
+  // Text cards (in scroll flow)
+  const cardEls = chapters.map((ch) => {
+    const block = document.createElement('div');
+    block.className = 'ch-block';
+
+    const card = document.createElement('div');
+    card.className = 'text-card';
+
+    if (ch.heading) {
+      const h2 = document.createElement('h2');
+      h2.textContent = ch.heading;
+      card.appendChild(h2);
+    }
+    if (ch.body) {
+      const p = document.createElement('p');
+      p.textContent = ch.body;
+      card.appendChild(p);
+    }
+
+    block.appendChild(card);
+    scroller.appendChild(block);
+    return card;
+  });
+
+  /* ── SIZING ─────────────────────────────────────────────── */
+  function chapterHeight() {
+    return window.innerHeight * VH_PER_CHAPTER;
+  }
+
+  function applyHeights() {
+    const chH = chapterHeight();
+    document.querySelectorAll('.ch-block').forEach(b => {
+      b.style.height = `${chH}px`;
+    });
+    // Extra half-screen at the bottom so last chapter can fully complete
+    scroller.style.height = `${chH * chapters.length + window.innerHeight * 0.5}px`;
+  }
+  applyHeights();
+
+  /* ── MATH HELPERS ───────────────────────────────────────── */
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function ease(t) { t = clamp(t, 0, 1); return t < 0.5 ? 2*t*t : -1 + (4-2*t)*t; }
+  function linearStep(t, a, b) { return clamp((t - a) / (b - a), 0, 1); }
+
+  /* ── MAIN RENDER ────────────────────────────────────────── */
+  function render() {
+    const sy  = window.scrollY;
+    const chH = chapterHeight();
+
+    // Which chapter and how far through it (0–1)
+    const rawIdx = sy / chH;
+    const cur    = clamp(Math.floor(rawIdx), 0, chapters.length - 1);
+    const prog   = rawIdx - Math.floor(rawIdx); // 0..1
+
+    const isLast = cur === chapters.length - 1;
+
+    // Cross-fade progress (0 = no fade yet, 1 = fully transitioned)
+    const fadeRaw = isLast ? 0 : linearStep(prog, FADE_START, 1.0);
+    const fadeT   = ease(fadeRaw);
+
+    /* ── Image layers ── */
+    // Z: how many times more zoomed-in the next image is relative to the current one.
+    const Z = chapters[cur].zoomFactor;
+
+    // curScale: how much the current image has been scaled this chapter.
+    // Goes from 1.0 at chapter start to Z at chapter end.
+    const curScale = 1 + prog * (Z - 1);
+
+    chapters.forEach((ch, i) => {
+      const layer  = layerEls[i];
+      const ovImg  = layer.querySelector('.overlay-img');
+
+      let layerOpacity, layerScale;
+
+      if (i === cur) {
+        // Active: zooms from 1.0 to Z. Stays at full opacity — it acts as the
+        // background while the next image fades in on top, so there is never a
+        // dark gap around the incoming (smaller) image.
+        layerOpacity = 1;
+        layerScale   = curScale;
+
+      } else if (i === cur + 1 && !isLast) {
+        // Next: fades in ON TOP of the current image. Starts at curScale/Z so its
+        // field of view matches the current image exactly throughout the crossfade.
+        // At the end curScale = Z, so nextScale = Z/Z = 1.0 — it fills the viewport
+        // and the current layer (now fully behind) snaps to opacity 0 invisibly.
+        layerOpacity = fadeT;
+        layerScale   = curScale / Z;
+
+      } else if (i < cur) {
+        // Past chapters: hidden. They were already fully covered when we left them.
+        layerOpacity = 0;
+        layerScale   = Z;
+
+      } else {
+        // Future chapters: hidden at natural scale.
+        layerOpacity = 0;
+        layerScale   = 1.0;
+      }
+
+      // Apply transform to the LAYER so both main-img and overlay-img scale together
+      layer.style.opacity   = layerOpacity;
+      layer.style.transform = `scale(${layerScale.toFixed(4)})`;
+
+      // Overlay (image 4.5): fades in during its chapter, both images share the layer scale
+      if (ovImg) {
+        let ovOpacity = 0;
+        if (i === cur) {
+          ovOpacity = ease(linearStep(prog, OVERLAY_START, OVERLAY_END));
+        } else if (i <= cur) {
+          ovOpacity = 1;
+        }
+        ovImg.style.opacity = ovOpacity;
+      }
+    });
+
+    /* ── Scale bar ── */
+    // Real-world scale shown on screen = scaleAtStart[cur] / curScale.
+    // This is perfectly continuous across chapter boundaries:
+    //   end of ch i:   scaleAtStart[i] / Z[i]
+    //   start of ch i+1: scaleAtStart[i+1] / 1.0 = scaleAtStart[i] / Z[i]  ✓
+    const scaleMM = scaleAtStart[cur] / curScale;
+
+    let label;
+    if (scaleMM >= 1) {
+      label = `${scaleMM >= 10 ? Math.round(scaleMM) : scaleMM.toFixed(1)}\u00a0mm`;
+    } else if (scaleMM >= 0.001) {
+      const um = scaleMM * 1000;
+      label = `${um >= 100 ? Math.round(um) : um.toFixed(1)}\u00a0μm`;
+    } else {
+      label = `${Math.round(scaleMM * 1e6)}\u00a0nm`;
+    }
+    scaleText.textContent = label;
+
+    // Scale bar LINE grows with curScale (same physical distance occupies more pixels
+    // as we zoom in). During crossfade it transitions back to BASE_LINE_PX as the
+    // next image (at scale 1.0) takes over. Cap at 4× to keep it readable.
+    const rawLine  = BASE_LINE_PX * clamp(curScale, 1, 4);
+    const lineWidth = rawLine + (BASE_LINE_PX - rawLine) * fadeT;
+    scaleLineEl.style.width = `${lineWidth.toFixed(1)}px`;
+
+    /* ── Progress dots ── */
+    dotEls.forEach((d, i) => d.classList.toggle('on', i === cur));
+
+    /* ── Text cards ── */
+    // Show card when inside the chapter and before transition zone
+    cardEls.forEach((card, i) => {
+      const active = (i === cur) && (prog < FADE_START + 0.05);
+      card.classList.toggle('show', active);
+    });
+
+    /* ── Scroll hint ── */
+    scrollHint.style.opacity = sy > window.innerHeight * 0.35 ? '0' : '1';
+  }
+
+  /* ── EVENT LISTENERS ────────────────────────────────────── */
+  let rafPending = false;
+  window.addEventListener('scroll', () => {
+    if (!rafPending) {
+      rafPending = true;
+      requestAnimationFrame(() => { render(); rafPending = false; });
+    }
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    applyHeights();
+    render();
+  });
+
+  // First render
+  render();
+
+})();
+</script>
+</body>
+</html>
